@@ -36,6 +36,12 @@ variable "secretsmanager_secret_arn" {
   type = string
 }
 
+variable "secretsmanager_secret_kms_key_id" {
+  description = "KMS key id/arn used by the Redshift credentials secret, if customer-managed."
+  type        = string
+  default     = ""
+}
+
 # Constructed ARNs (to break circular dependencies)
 variable "state_machine_arn" {
   description = "Pre-computed State Machine ARN."

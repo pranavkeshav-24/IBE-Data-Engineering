@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 
 import boto3
@@ -13,6 +14,17 @@ DATABASE = os.environ["REDSHIFT_DATABASE"]
 SECRET_ARN = os.environ["REDSHIFT_SECRET_ARN"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 REDSHIFT_COPY_ROLE_ARN = os.environ["REDSHIFT_COPY_ROLE_ARN"]
+REDSHIFT_SKIP_DDL = os.environ.get("REDSHIFT_SKIP_DDL", "false").lower() == "true"
+
+
+def _safe_identifier(value: str, fallback: str = "public") -> str:
+    candidate = (value or fallback).strip().lower()
+    if re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", candidate):
+        return candidate
+    return fallback
+
+
+REDSHIFT_SCHEMA = _safe_identifier(os.environ.get("REDSHIFT_SCHEMA", "public"))
 
 COPY_COLUMNS = [
     "date",
@@ -47,6 +59,21 @@ def execute_and_wait(sql: str) -> dict:
         status = desc["Status"]
         if status in {"FINISHED", "FAILED", "ABORTED"}:
             if status != "FINISHED":
+                error_text = str(desc.get("Error", "")).lower()
+                if "permission denied for database" in error_text:
+                    raise RuntimeError(
+                        "Redshift user lacks CREATE permissions on the database. "
+                        "Use a pre-provisioned schema/tables setup (REDSHIFT_SKIP_DDL=true) "
+                        "or grant CREATE privileges."
+                    )
+                if REDSHIFT_SKIP_DDL and (
+                    ('schema "' in error_text and '" does not exist' in error_text)
+                    or ('relation "' in error_text and '" does not exist' in error_text)
+                ):
+                    raise RuntimeError(
+                        f"Schema/table is missing in Redshift ({REDSHIFT_SCHEMA}.*) while REDSHIFT_SKIP_DDL=true. "
+                        "Either pre-create the target objects or set REDSHIFT_SKIP_DDL=false."
+                    )
                 raise RuntimeError(f"Redshift statement {statement_id} failed: {desc}")
             return desc
         time.sleep(2)
@@ -57,9 +84,13 @@ def sql_quote(value: str) -> str:
 
 
 def ensure_tables():
+    create_schema_sql = ""
+    if REDSHIFT_SCHEMA != "public":
+        create_schema_sql = f"CREATE SCHEMA IF NOT EXISTS {REDSHIFT_SCHEMA};"
+
     ddl = """
-    CREATE SCHEMA IF NOT EXISTS analytics;
-    CREATE TABLE IF NOT EXISTS analytics.fact_uploads (
+    %s
+    CREATE TABLE IF NOT EXISTS %s.fact_uploads (
       date DATE,
       client_id VARCHAR(64),
       discount_code VARCHAR(256),
@@ -77,7 +108,7 @@ def ensure_tables():
       run_id VARCHAR(128),
       loaded_at TIMESTAMP DEFAULT GETDATE()
     );
-    CREATE TABLE IF NOT EXISTS analytics.fact_adscribe (
+    CREATE TABLE IF NOT EXISTS %s.fact_adscribe (
       date DATE,
       client_id VARCHAR(64),
       discount_code VARCHAR(256),
@@ -95,9 +126,17 @@ def ensure_tables():
       run_id VARCHAR(128),
       loaded_at TIMESTAMP DEFAULT GETDATE()
     );
-    CREATE TABLE IF NOT EXISTS analytics.fact_uploads_staging (LIKE analytics.fact_uploads);
-    CREATE TABLE IF NOT EXISTS analytics.fact_adscribe_staging (LIKE analytics.fact_adscribe);
-    """
+    CREATE TABLE IF NOT EXISTS %s.fact_uploads_staging (LIKE %s.fact_uploads);
+    CREATE TABLE IF NOT EXISTS %s.fact_adscribe_staging (LIKE %s.fact_adscribe);
+    """ % (
+        create_schema_sql,
+        REDSHIFT_SCHEMA,
+        REDSHIFT_SCHEMA,
+        REDSHIFT_SCHEMA,
+        REDSHIFT_SCHEMA,
+        REDSHIFT_SCHEMA,
+        REDSHIFT_SCHEMA,
+    )
     import random
 
     for attempt in range(5):
@@ -120,10 +159,14 @@ def lambda_handler(event, context):
     run_id_quoted = sql_quote(run_id)
     client_id_quoted = sql_quote(client_id)
 
-    ensure_tables()
+    # Existing enterprise/shared Redshift environments can require pre-provisioned schemas.
+    if not REDSHIFT_SKIP_DDL:
+        ensure_tables()
 
-    target_table = "analytics.fact_adscribe" if client_id == "adscribe" else "analytics.fact_uploads"
-    staging_table = "analytics.fact_adscribe_staging" if client_id == "adscribe" else "analytics.fact_uploads_staging"
+    target_table = f"{REDSHIFT_SCHEMA}.fact_adscribe" if client_id == "adscribe" else f"{REDSHIFT_SCHEMA}.fact_uploads"
+    staging_table = (
+        f"{REDSHIFT_SCHEMA}.fact_adscribe_staging" if client_id == "adscribe" else f"{REDSHIFT_SCHEMA}.fact_uploads_staging"
+    )
     source_prefix_key = f"silver/load/client_id={client_id}/run_id={run_id}/"
     source_prefix = f"s3://{PROCESSED_BUCKET}/{source_prefix_key}"
 

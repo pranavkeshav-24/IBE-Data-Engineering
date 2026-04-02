@@ -26,6 +26,10 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+locals {
+  secret_kms_key_is_arn = can(regex("^arn:aws[a-z-]*:kms:", var.secretsmanager_secret_kms_key_id))
+}
+
 data "aws_iam_policy_document" "lambda_inline" {
   statement {
     sid = "S3ReadWritePipelineBuckets"
@@ -81,8 +85,17 @@ data "aws_iam_policy_document" "lambda_inline" {
 
   statement {
     sid       = "ReadRedshiftSecret"
-    actions   = ["secretsmanager:GetSecretValue"]
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
     resources = [var.secretsmanager_secret_arn]
+  }
+
+  dynamic "statement" {
+    for_each = local.secret_kms_key_is_arn ? [1] : []
+    content {
+      sid       = "DecryptRedshiftSecretWithKms"
+      actions   = ["kms:Decrypt", "kms:DescribeKey"]
+      resources = [var.secretsmanager_secret_kms_key_id]
+    }
   }
 
   statement {

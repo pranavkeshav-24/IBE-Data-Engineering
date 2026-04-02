@@ -9,6 +9,7 @@ import boto3
 
 sfn = boto3.client("stepfunctions")
 STATE_MACHINE_ARN = os.environ["STATE_MACHINE_ARN"]
+KNOWN_CLIENTS = {"alpha", "beta", "gamma", "adscribe"}
 
 
 def _client_from_key(key: str) -> str:
@@ -18,8 +19,8 @@ def _client_from_key(key: str) -> str:
     return "unknown"
 
 
-def _execution_name(client_id: str, key: str, file_hash: str) -> str:
-    stable_id = f"{client_id}:{key}:{file_hash}"
+def _execution_name(client_id: str, key: str, identity_token: str) -> str:
+    stable_id = f"{client_id}:{key}:{identity_token}"
     digest = hashlib.sha1(stable_id.encode("utf-8")).hexdigest()[:28]
     key_name = key.rsplit("/", 1)[-1].lower()
     safe_key = re.sub(r"[^a-z0-9-]", "-", key_name).strip("-")
@@ -31,6 +32,7 @@ def lambda_handler(event, context):
     records = event.get("Records", [])
     started = []
     ignored_duplicates = []
+    skipped_unknown_clients = []
 
     for record in records:
         if record.get("eventSource") != "aws:s3":
@@ -39,20 +41,27 @@ def lambda_handler(event, context):
         bucket = record["s3"]["bucket"]["name"]
         key = unquote_plus(record["s3"]["object"]["key"])
         etag = record["s3"]["object"].get("eTag", "").replace('"', "")
+        version_id = record["s3"]["object"].get("versionId", "")
         size = record["s3"]["object"].get("size", 0)
         client_id = _client_from_key(key)
         file_hash = etag or f"{bucket}:{key}:{size}"
+        identity_token = version_id or file_hash
+
+        if client_id not in KNOWN_CLIENTS:
+            skipped_unknown_clients.append({"bucket": bucket, "key": key})
+            continue
 
         payload = {
             "bucket": bucket,
             "key": key,
             "client_id": client_id,
             "file_hash": file_hash,
+            "object_version_id": version_id,
             "object_size": size,
             "event_time": record.get("eventTime"),
         }
 
-        execution_name = _execution_name(client_id, key, file_hash)
+        execution_name = _execution_name(client_id, key, identity_token)
         try:
             response = sfn.start_execution(
                 stateMachineArn=STATE_MACHINE_ARN,
@@ -66,5 +75,6 @@ def lambda_handler(event, context):
     return {
         "started_executions": started,
         "ignored_duplicates": ignored_duplicates,
+        "skipped_unknown_clients": skipped_unknown_clients,
         "count": len(started),
     }

@@ -37,6 +37,14 @@ variable "secretsmanager_secret_arn" { type = string }
 variable "redshift_workgroup_name" { type = string }
 variable "redshift_database" { type = string }
 variable "redshift_s3_role_arn" { type = string }
+variable "redshift_schema" {
+  type    = string
+  default = "public"
+}
+variable "redshift_skip_ddl" {
+  type    = bool
+  default = false
+}
 
 # Step Functions
 variable "state_machine_arn" { type = string }

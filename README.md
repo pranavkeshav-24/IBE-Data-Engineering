@@ -32,6 +32,8 @@ Use `terraform.tfvars.example` as a starter.
 - If you already have a Redshift Serverless workgroup, set `existing_redshift_workgroup_name` to reuse it. Terraform will skip creating Redshift namespace/workgroup and connect Lambda/Data API to your assigned DB via `redshift_database`.
 - If you already created a Redshift credentials secret in Secrets Manager, set `existing_redshift_secret_name` (for example `momentum-ibe-secrets`). Terraform will reuse that secret ARN instead of creating a new one.
 - The reused secret should include at least: `username`, `password`, and `dbname` (extra keys like `host`, `port`, `namespaceName`, `engine` are fine).
+- Redshift target objects are configurable via `redshift_schema` (default: `public`).
+- The loader defaults to `REDSHIFT_SKIP_DDL=false`, so it can create required tables automatically when permissions allow. Set `redshift_skip_ddl=true` only when your schema/tables are pre-provisioned.
 - Glue is configured with low worker count for cost control.
 - For data load correctness, client uploads should preserve folder conventions:
   - `raw/alpha/<batch>/...orders...csv` + `...codes...csv`

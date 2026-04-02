@@ -173,6 +173,8 @@ resource "aws_lambda_function" "redshift_loader" {
       REDSHIFT_SECRET_ARN    = var.secretsmanager_secret_arn
       PROCESSED_BUCKET       = var.processed_bucket_id
       REDSHIFT_COPY_ROLE_ARN = var.redshift_s3_role_arn
+      REDSHIFT_SCHEMA        = var.redshift_schema
+      REDSHIFT_SKIP_DDL      = tostring(var.redshift_skip_ddl)
     }
   }
 
@@ -195,6 +197,7 @@ resource "aws_lambda_function" "api_query" {
       REDSHIFT_WORKGROUP  = var.redshift_workgroup_name
       REDSHIFT_DATABASE   = var.redshift_database
       REDSHIFT_SECRET_ARN = var.secretsmanager_secret_arn
+      REDSHIFT_SCHEMA     = var.redshift_schema
       STATE_MACHINE_ARN   = var.state_machine_arn
       ALLOWED_ORIGIN      = var.api_allowed_cors_origin
     }

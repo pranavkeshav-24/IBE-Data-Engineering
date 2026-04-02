@@ -29,6 +29,18 @@ variable "redshift_database" {
   default     = "main_db"
 }
 
+variable "redshift_schema" {
+  description = "Target Redshift schema used by loader and API query Lambda functions."
+  type        = string
+  default     = "public"
+}
+
+variable "redshift_skip_ddl" {
+  description = "If true, skip schema/table DDL creation in redshift_loader Lambda."
+  type        = bool
+  default     = false
+}
+
 variable "existing_redshift_secret_name" {
   description = "Optional existing Secrets Manager secret name for Redshift credentials (for example: momentum-ibe-secrets)."
   type        = string

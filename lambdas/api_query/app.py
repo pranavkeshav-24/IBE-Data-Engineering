@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from datetime import date, timedelta
 
@@ -14,6 +15,16 @@ DATABASE = os.environ["REDSHIFT_DATABASE"]
 SECRET_ARN = os.environ["REDSHIFT_SECRET_ARN"]
 STATE_MACHINE_ARN = os.environ.get("STATE_MACHINE_ARN", "")
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
+
+
+def _safe_identifier(value: str, fallback: str = "public") -> str:
+    candidate = (value or fallback).strip().lower()
+    if re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", candidate):
+        return candidate
+    return fallback
+
+
+REDSHIFT_SCHEMA = _safe_identifier(os.environ.get("REDSHIFT_SCHEMA", "public"))
 
 
 def _response(status: int, body: dict):
@@ -58,6 +69,9 @@ def _build_query(params: dict):
     end_date = params.get("end_date") or date.today().isoformat()
     client_id = params.get("client_id")
 
+    fact_uploads_table = f"{REDSHIFT_SCHEMA}.fact_uploads"
+    fact_adscribe_table = f"{REDSHIFT_SCHEMA}.fact_adscribe"
+
     base = f"""
     SELECT
       date,
@@ -71,9 +85,9 @@ def _build_query(params: dict):
       SUM(active_orders) AS active_orders,
       SUM(impressions) AS impressions
     FROM (
-      SELECT date, client_id, discount_code, show_name, revenue, orders, new_orders, lapsed_orders, active_orders, impressions FROM analytics.fact_uploads
+      SELECT date, client_id, discount_code, show_name, revenue, orders, new_orders, lapsed_orders, active_orders, impressions FROM {fact_uploads_table}
       UNION ALL
-      SELECT date, client_id, discount_code, show_name, revenue, orders, new_orders, lapsed_orders, active_orders, impressions FROM analytics.fact_adscribe
+      SELECT date, client_id, discount_code, show_name, revenue, orders, new_orders, lapsed_orders, active_orders, impressions FROM {fact_adscribe_table}
     ) x
     WHERE date BETWEEN '{start_date}' AND '{end_date}'
     """

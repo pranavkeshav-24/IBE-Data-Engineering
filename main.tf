@@ -211,9 +211,10 @@ module "iam" {
   quarantine_bucket_arn = module.s3.quarantine_bucket_arn
 
   # Data services
-  dynamodb_table_arn        = module.dynamodb_sns.dedup_table_arn
-  sns_topic_arn             = module.dynamodb_sns.sns_topic_arn
-  secretsmanager_secret_arn = module.dynamodb_sns.secretsmanager_secret_arn
+  dynamodb_table_arn               = module.dynamodb_sns.dedup_table_arn
+  sns_topic_arn                    = module.dynamodb_sns.sns_topic_arn
+  secretsmanager_secret_arn        = module.dynamodb_sns.secretsmanager_secret_arn
+  secretsmanager_secret_kms_key_id = module.dynamodb_sns.secretsmanager_secret_kms_key_id
 
   # Pre-computed ARNs
   state_machine_arn          = local.state_machine_arn
@@ -313,6 +314,8 @@ module "lambdas" {
   # Redshift (workgroup name computed locally to avoid depending on redshift module)
   redshift_workgroup_name = local.redshift_workgroup_name
   redshift_database       = var.redshift_database
+  redshift_schema         = var.redshift_schema
+  redshift_skip_ddl       = var.redshift_skip_ddl
   redshift_s3_role_arn    = module.iam.redshift_s3_role_arn
 
   # Step Functions (pre-computed ARN to avoid circular dep)
